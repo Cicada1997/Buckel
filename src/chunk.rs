@@ -54,10 +54,8 @@ impl Chunk {
                 let world_x = (x + cx * CHUNK_SIZE as i32) as f64;
                 let world_z = (z + cz * CHUNK_SIZE as i32) as f64;
 
-                // 2. Use 2D Noise to get a height value at this (x, z)
                 let noise_val = perlin.get([world_x * frequency, world_z * frequency]);
 
-                // 3. Convert noise (-1.0 to 1.0) into a block height
                 let height = ((noise_val + 1.0) * 0.5 * terrain_height_multiplier + sea_level) as i32;
 
                 for y in 0..CHUNK_HEIGHT as i32 {
@@ -69,30 +67,6 @@ impl Chunk {
         }
     }
 
-    // fn gen_perlin(&mut self, cx: i32, cz: i32) {
-    //     use noise::{NoiseFn, Perlin, Seedable};
-    //
-    //     self.dirty = true;
-    //
-    //     let perlin = Perlin::new(1);
-    //
-    //     for x in 0..CHUNK_SIZE as i32 {
-    //         for y in 0..CHUNK_HEIGHT as i32 {
-    //             for z in 0..CHUNK_SIZE as i32 {
-    //                 if perlin.get([
-    //                     (x + cx) as f64, 
-    //                     y as f64, 
-    //                     (z + cz) as f64
-    //                 ]) > 0.01 {
-    //
-    //                     dbg!(&y);
-    //                     self.set_block(x as usize, y as usize, z as usize, Some(1));
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
-    //
     pub fn get_block(&self, x: usize, y: usize, z: usize) -> Option<BlockTypeId> {
         limit!(x, CHUNK_SIZE as usize,   "chunk relative position outside chunk");
         limit!(y, CHUNK_HEIGHT as usize, "chunk relative position outside chunk");

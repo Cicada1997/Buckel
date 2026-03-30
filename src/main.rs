@@ -171,11 +171,6 @@ fn main() {
                     cam.angle.x -= (yrel as f32 / 1000.0) * MOUSE_SENSATIVITY;
                 }
 
-                // Event::MouseButtonDown { mouse_btn: MouseButton::Right, .. } => {
-                //     world.set_block(pos.x as usize, pos.y as usize, pos.z as usize, Some(1));
-                //     // chunk.dirty = true;
-                //     // chunk.build_mesh();
-                // }
                 Event::MouseButtonDown { mouse_btn, .. } => {
                     let bx = pos.x.floor() as i32;
                     let by = pos.y.floor() as i32;
