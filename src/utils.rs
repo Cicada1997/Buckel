@@ -25,7 +25,8 @@ macro_rules! limit {
             panic!("Value {} exceeds limit from {} to {} with value {}.", stringify!($val), $min, $max, $val);
         }
     };
-    ($val:ident, $min:expr, $max:expr, $err_msg:literal) => {
+    // ($val:ident, $min:expr, $max:expr, $err_msg:literal) => {
+    ($val:expr, $min:expr, $max:expr, $err_msg:literal) => {
         if $val < $min && $val > $max {
             panic!("Value {} exceeds limit from {} to {} with value {}: {}", stringify!($val), $min, $max, $val, $err_msg);
         }

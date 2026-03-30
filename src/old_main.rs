@@ -37,7 +37,6 @@ macro_rules! limit {
             panic!("Value {} exceeds limit from {} to {} with value {}: {}", stringify!($val), $min, $max, $val, $err_msg);
         }
     };
-
 }
 
 static FOV: f32 = 90.0;

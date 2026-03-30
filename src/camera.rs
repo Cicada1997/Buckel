@@ -3,10 +3,9 @@ use {
 };
 
 pub struct Camera {
-    pub angle:  Vec3, /// the rotation in radians
+    pub angle:  Vec3,
 
     pub pos:    Vec3,
-    // pub target: Vec3,
 }
 
 

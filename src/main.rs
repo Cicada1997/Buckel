@@ -2,12 +2,10 @@ pub mod camera;
 pub mod utils;
 pub mod chunk;
 
-use sdl2::mouse::MouseButton;
-
 use {
     camera::Camera, 
     utils::SdlContext,
-    chunk::Chunk,
+    chunk::VoxelWorld,
 };
 
 use {
@@ -18,10 +16,16 @@ use {
         NativeBuffer,
     },
     sdl2::{
-        keyboard::Scancode,
+        keyboard::{
+            Scancode,
+            Mod,
+        },
+        mouse::MouseButton,
         event::Event,
     },
 };
+
+pub static BLOCK_TYPE_COUNT: usize = 3;
 
 static FOV: f32 = 90.0;
 static MOUSE_SENSATIVITY: f32 = 6.0;
@@ -68,10 +72,9 @@ fn main() {
         gl
     };
 
-    let mut chunk = Chunk::default();
-    chunk.build_mesh();
-
-    let mut vertex_count = (chunk.mesh.len() / 3) as i32;
+    let mut world = VoxelWorld::default();
+    world.nearby_chunk_mesh(vec3(0., 0., 0.));
+    let mut vertex_count = (world.last_mesh.len() / 3) as i32;
 
     let (vao, mut vbo) = unsafe {
         let vao = gl.create_vertex_array().unwrap();
@@ -82,7 +85,7 @@ fn main() {
 
         gl.buffer_data_u8_slice(
             glow::ARRAY_BUFFER, 
-            bytemuck::cast_slice(&chunk.mesh), 
+            bytemuck::cast_slice(&world.last_mesh), 
             glow::STATIC_DRAW 
         );
 
@@ -137,7 +140,10 @@ fn main() {
     let mut last_frame_time = timer.ticks();
     let mut event_pump = ctx.sdl.event_pump().unwrap();
 
+
     'running: loop {
+        let mut movement_speed = 14.;
+
         for event in event_pump.poll_iter() {
             let reach_dist = 2.;
             let pos = cam.pos + (cam.front() * reach_dist);
@@ -156,21 +162,34 @@ fn main() {
                     }
                 }
 
+                Event::KeyDown { keymod: Mod::LSHIFTMOD, .. } => {
+                    movement_speed = 120.;
+                }
+
                 Event::MouseMotion { xrel, yrel, .. } => {
                     cam.angle.y += (xrel as f32 / 1000.0) * MOUSE_SENSATIVITY;
                     cam.angle.x -= (yrel as f32 / 1000.0) * MOUSE_SENSATIVITY;
                 }
 
-                Event::MouseButtonDown { mouse_btn: MouseButton::Right, .. } => {
-                    chunk.set_block(pos.x as usize, pos.y as usize, pos.z as usize, true);
-                    chunk.dirty = true;
-                    chunk.build_mesh();
-                }
+                // Event::MouseButtonDown { mouse_btn: MouseButton::Right, .. } => {
+                //     world.set_block(pos.x as usize, pos.y as usize, pos.z as usize, Some(1));
+                //     // chunk.dirty = true;
+                //     // chunk.build_mesh();
+                // }
+                Event::MouseButtonDown { mouse_btn, .. } => {
+                    let bx = pos.x.floor() as i32;
+                    let by = pos.y.floor() as i32;
+                    let bz = pos.z.floor() as i32;
 
-                Event::MouseButtonDown { mouse_btn: MouseButton::Left, .. } => {
-                    chunk.set_block(pos.x as usize, pos.y as usize, pos.z as usize, false);
-                    chunk.dirty = true;
-                    chunk.build_mesh();
+                    match mouse_btn {
+                        MouseButton::Right => {
+                            world.set_block(bx, by, bz, Some(1));
+                        }
+                        MouseButton::Left => {
+                            world.set_block(bx, by, bz, None);
+                        }
+                        _ => {}
+                    }
                 }
 
                 _ => {}
@@ -182,7 +201,6 @@ fn main() {
         last_frame_time = now;
 
         let ks = event_pump.keyboard_state();
-        let speed = 8.0 * delta_time; // Ökade speed lite så du kan flyga runt enklare
 
         let front = cam.flat_front();
         let right = front.cross(Vec3::Y).normalize();
@@ -207,12 +225,14 @@ fn main() {
         cam.angle.x = cam.angle.x.clamp(-max_pitch, max_pitch);
 
         if next_move != Vec3::ZERO {
-            cam.pos += next_move.normalize() * speed;
+            cam.pos += next_move.normalize() * movement_speed * delta_time;
         }
 
         cam.update_view(&mut view);
 
-        update_chunk(&gl, &mut vbo, &mut vertex_count, &chunk.mesh);
+        world.nearby_chunk_mesh(cam.pos);
+         
+        update_chunk(&gl, &mut vbo, &mut vertex_count, &world.last_mesh);
 
         unsafe {
             gl.clear_color(0.1, 0.15, 0.2, 1.0);
