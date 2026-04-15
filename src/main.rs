@@ -2,7 +2,7 @@ pub mod camera;
 pub mod utils;
 pub mod chunk;
 
-use {
+use crate::{
     camera::Camera, 
     utils::SdlContext,
     chunk::VoxelWorld,
@@ -192,8 +192,11 @@ fn main() {
         }
 
         let now         = timer.ticks();
+        let fps_time  = (now - last_frame_time) as f64 / 1000.0;
         let delta_time  = (now - last_frame_time) as f32 / 1000.0;
         last_frame_time = now;
+
+        print!("\rFPS: {:.2}", 1. / fps_time);
 
         let ks = event_pump.keyboard_state();
 
@@ -228,6 +231,7 @@ fn main() {
         world.nearby_chunk_mesh(cam.pos);
          
         update_chunk(&gl, &mut vbo, &mut vertex_count, &world.last_mesh);
+
 
         unsafe {
             gl.clear_color(0.1, 0.15, 0.2, 1.0);
