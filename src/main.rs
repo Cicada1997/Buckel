@@ -3,15 +3,14 @@ pub mod utils;
 pub mod chunk;
 
 use crate::{
-    camera::Camera, 
-    utils::SdlContext,
-    chunk::VoxelWorld,
+    camera::Camera, chunk::{VoxelWorld}, utils::SdlContext
 };
 
 use {
     std::f32::consts::PI,
     glam::{ Mat4, Vec3, vec3 },
     glow::{
+        Context,
         HasContext,
         NativeBuffer,
     },
@@ -25,21 +24,42 @@ use {
     },
 };
 
-pub static BLOCK_TYPE_COUNT: usize = 3;
+pub type Error = Box<dyn std::error::Error>;
 
 static FOV: f32 = 90.0;
 static MOUSE_SENSATIVITY: f32 = 6.0;
 
-fn update_chunk(gl: &glow::Context, vbo: &mut NativeBuffer, vertex_count: &mut i32, mesh: &Vec<f32>) {
-    *vertex_count = (mesh.len() / 3) as i32;
+// fn update_chunk(gl: &glow::Context, vbo: &mut NativeBuffer, vertex_count: &mut i32, mesh: &Vec<f32>) {
+//     *vertex_count = (mesh.len() / 3) as i32;
+//     unsafe {
+//         gl.bind_buffer(glow::ARRAY_BUFFER, Some(*vbo));
+//         gl.buffer_data_u8_slice(
+//             glow::ARRAY_BUFFER,
+//             bytemuck::cast_slice(mesh),
+//             glow::DYNAMIC_DRAW,
+//         );
+//     }
+// }
+
+fn create_chunk_vbo(gl: Context) -> NativeBuffer {
     unsafe {
-        gl.bind_buffer(glow::ARRAY_BUFFER, Some(*vbo));
-        gl.buffer_data_u8_slice(
-            glow::ARRAY_BUFFER,
-            bytemuck::cast_slice(mesh),
-            glow::DYNAMIC_DRAW,
-        );
-    }
+        // let vao = gl.create_vertex_array().unwrap();
+        let vbo = gl.create_buffer().unwrap();
+
+        // gl.bind_vertex_array(Some(vao));
+        gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
+
+        // gl.buffer_data_u8_slice(
+        //     glow::ARRAY_BUFFER, 
+        //     bytemuck::cast_slice(&world.last_mesh), 
+        //     glow::STATIC_DRAW 
+        // );
+
+        gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 0, 0);
+        gl.enable_vertex_attrib_array(0);
+
+        return vbo;
+    };
 }
 
 fn main() {
@@ -72,28 +92,27 @@ fn main() {
         gl
     };
 
-    let mut world = VoxelWorld::default();
-    world.nearby_chunk_mesh(vec3(0., 0., 0.));
-    let mut vertex_count = (world.last_mesh.len() / 3) as i32;
+    // world.nearby_chunk_mesh(vec3(0., 0., 0.));
+    // let mut vertex_count = (world.last_mesh.len() / 3) as i32;
 
-    let (vao, mut vbo) = unsafe {
-        let vao = gl.create_vertex_array().unwrap();
-        let vbo = gl.create_buffer().unwrap();
-
-        gl.bind_vertex_array(Some(vao));
-        gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
-
-        gl.buffer_data_u8_slice(
-            glow::ARRAY_BUFFER, 
-            bytemuck::cast_slice(&world.last_mesh), 
-            glow::STATIC_DRAW 
-        );
-
-        gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 0, 0);
-        gl.enable_vertex_attrib_array(0);
-
-        (vao, vbo)
-    };
+    // let (vao, mut vbo) = unsafe {
+    //     let vao = gl.create_vertex_array().unwrap();
+    //     let vbo = gl.create_buffer().unwrap();
+    //
+    //     gl.bind_vertex_array(Some(vao));
+    //     gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
+    //
+    //     gl.buffer_data_u8_slice(
+    //         glow::ARRAY_BUFFER, 
+    //         bytemuck::cast_slice(&world.last_mesh), 
+    //         glow::STATIC_DRAW 
+    //     );
+    //
+    //     gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 0, 0);
+    //     gl.enable_vertex_attrib_array(0);
+    //
+    //     (vao, vbo)
+    // };
 
     let vertex_shader_source = r#"
         #version 330 core
@@ -118,7 +137,10 @@ fn main() {
     "#;
 
     let program       = unsafe { create_program(&gl, vertex_shader_source, fragment_shader_source) };
-    let transform_loc = unsafe { gl.get_uniform_location(program, "u_transform") };
+    let transform_loc = unsafe { gl.get_uniform_location(program, "u_transform") }.expect("Could not get uniform location");
+
+    let mut world = VoxelWorld::default();
+    world.transform_loc = Some(transform_loc.clone());
 
     let (win_w, win_h) = ctx.window.size();
     let mut projection = glam::Mat4::perspective_rh_gl(
@@ -178,10 +200,16 @@ fn main() {
 
                     match mouse_btn {
                         MouseButton::Right => {
-                            world.set_block(bx, by, bz, Some(1));
+                            if world.set_block(bx, by, bz, Some(1)).is_err() {
+                                world.build_chunk(&gl, &VoxelWorld::chunk_pos(bx, bz));
+                                world.set_block(bx, by, bz, Some(1)).unwrap();
+                            }
                         }
                         MouseButton::Left => {
-                            world.set_block(bx, by, bz, None);
+                            if world.set_block(bx, by, bz, None).is_err() {
+                                world.build_chunk(&gl, &VoxelWorld::chunk_pos(bx, bz));
+                                world.set_block(bx, by, bz, None).unwrap();
+                            }
                         }
                         _ => {}
                     }
@@ -228,24 +256,24 @@ fn main() {
 
         cam.update_view(&mut view);
 
-        world.nearby_chunk_mesh(cam.pos);
+        world.try_build_nearby_chunks(&gl, &cam.pos);
          
-        update_chunk(&gl, &mut vbo, &mut vertex_count, &world.last_mesh);
-
+        // update_chunk(&gl, &mut vertex_count, &world.last_mesh);
 
         unsafe {
             gl.clear_color(0.1, 0.15, 0.2, 1.0);
             gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
 
             gl.use_program(Some(program));
-            gl.bind_vertex_array(Some(vao));
+            // gl.bind_vertex_array(Some(vao));
 
-            if vertex_count > 0 {
-                let chunk_model = Mat4::IDENTITY;
-                let chunk_mvp = projection * view * chunk_model;
-                gl.uniform_matrix_4_f32_slice(transform_loc.as_ref(), false, &chunk_mvp.to_cols_array());
-                gl.draw_arrays(glow::TRIANGLES, 0, vertex_count);
-            }
+            let mvp = projection * view * Mat4::IDENTITY;
+            world.render(&gl, &cam.pos, &mvp);
+            // if vertex_count > 0 {
+            //     let chunk_model = Mat4::IDENTITY;
+            //     gl.uniform_matrix_4_f32_slice(transform_loc.as_ref(), false, &chunk_mvp.to_cols_array());
+            //     gl.draw_arrays(glow::TRIANGLES, 0, vertex_count);
+            // }
         }
 
         ctx.window.gl_swap_window();
