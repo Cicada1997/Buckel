@@ -20,7 +20,8 @@ use {
 
 pub static SEED:   u32 = 12938;
 pub static CHUNK_SIZE:   u16 = 16;
-pub static CHUNK_HEIGHT: u16 = 64;
+pub static CHUNK_HEIGHT: u16 = 256;
+pub static RENDER_DISTANCE: i32 = 16;
 pub type ByteChunkLayer      = [u16;            CHUNK_SIZE   as usize];
 pub type ByteChunk           = [ByteChunkLayer; CHUNK_HEIGHT as usize];
 
@@ -208,6 +209,7 @@ impl Chunk {
 
         self.dirty = true;
         let perlin = Perlin::new(SEED);
+        let perlin2 = Perlin::new(SEED / 2);
 
         let frequency = 0.03; 
         let terrain_height_multiplier = 20.0;
@@ -218,8 +220,7 @@ impl Chunk {
                 let world_x = (x + self.pos.0 * CHUNK_SIZE as i32) as f64;
                 let world_z = (z + self.pos.1 * CHUNK_SIZE as i32) as f64;
 
-                let noise_val = perlin.get([world_x * frequency, world_z * frequency]);
-
+                let noise_val = perlin.get([world_x * frequency, world_z * frequency]) + perlin2.get([world_x * frequency, world_z * frequency]);
                 let height = ((noise_val + 1.0) * 0.5 * terrain_height_multiplier + sea_level) as i32;
 
                 for y in 0..CHUNK_HEIGHT as i32 {
@@ -324,7 +325,6 @@ impl VoxelWorld {
         let p_cx = (position.x / CHUNK_SIZE as f32).floor() as i32;
         let p_cz = (position.z / CHUNK_SIZE as f32).floor() as i32;
 
-        const RENDER_DISTANCE: i32 = 4;
 
         for cx in (p_cx - RENDER_DISTANCE)..=(p_cx + RENDER_DISTANCE) {
             for cz in (p_cz - RENDER_DISTANCE)..=(p_cz + RENDER_DISTANCE) {
@@ -363,8 +363,6 @@ impl VoxelWorld {
         let p_cx = (position.x / CHUNK_SIZE as f32).floor() as i32;
         let p_cz = (position.z / CHUNK_SIZE as f32).floor() as i32;
 
-        const RENDER_DISTANCE: i32 = 4;
-        
         unsafe {
             gl.uniform_matrix_4_f32_slice(self.transform_loc.as_ref(), false, &mvp.to_cols_array());
         }
@@ -376,15 +374,8 @@ impl VoxelWorld {
                 unsafe {
                     gl.uniform_matrix_4_f32_slice(self.transform_loc.as_ref(), false, &mvp.to_cols_array());
                 }
-                match self.world.get_mut(&cp) {
-                    Some(chunk) => {
-                        chunk.render(gl);
-                    }
-                    None => {
-                        self.world.insert(cp, 
-                            Chunk::new(cp, gl)
-                        );
-                    }
+                if let Some(chunk) = self.world.get_mut(&cp) {
+                    chunk.render(gl);
                 }
 
                 // let chunk = self.world.get(&cp).expect("Building chunk failed; could not get chunk after meshbuild (should assure chunk exists).");

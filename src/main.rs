@@ -17,7 +17,6 @@ use {
     sdl2::{
         keyboard::{
             Scancode,
-            Mod,
         },
         mouse::MouseButton,
         event::Event,
@@ -147,7 +146,7 @@ fn main() {
         f32::to_radians(FOV), 
         win_w as f32 / win_h as f32, 
         0.1, 
-        100.0
+        10000.0
     );
 
     let mut cam = Camera {
@@ -162,6 +161,8 @@ fn main() {
     let mut last_frame_time = timer.ticks();
     let mut event_pump = ctx.sdl.event_pump().unwrap();
 
+
+    let mut selected_block = 1;
 
     'running: loop {
         let mut movement_speed = 14.;
@@ -179,15 +180,15 @@ fn main() {
                             f32::to_radians(FOV), 
                             width as f32 / height as f32, 
                             0.1, 
-                            100.0
+                            10000.0
                         );
                     }
                 }
 
-                Event::KeyDown { keymod: Mod::LSHIFTMOD, .. } => {
-                    movement_speed = 120.;
-                }
-
+                // Event::KeyDown { keymod: Mod::LSHIFTMOD, .. } => {
+                //     movement_speed = 120.;
+                // }
+                //
                 Event::MouseMotion { xrel, yrel, .. } => {
                     cam.angle.y += (xrel as f32 / 1000.0) * MOUSE_SENSATIVITY;
                     cam.angle.x -= (yrel as f32 / 1000.0) * MOUSE_SENSATIVITY;
@@ -200,9 +201,9 @@ fn main() {
 
                     match mouse_btn {
                         MouseButton::Right => {
-                            if world.set_block(bx, by, bz, Some(1)).is_err() {
+                            if world.set_block(bx, by, bz, Some(selected_block)).is_err() {
                                 world.build_chunk(&gl, &VoxelWorld::chunk_pos(bx, bz));
-                                world.set_block(bx, by, bz, Some(1)).unwrap();
+                                world.set_block(bx, by, bz, Some(selected_block)).unwrap();
                             }
                         }
                         MouseButton::Left => {
@@ -227,6 +228,9 @@ fn main() {
         print!("\rFPS: {:.2}", 1. / fps_time);
 
         let ks = event_pump.keyboard_state();
+        if event_pump.is_event_enabled(sdl2::event::EventType::KeyDown) {
+            movement_speed = 120.;
+        }
 
         let front = cam.flat_front();
         let right = front.cross(Vec3::Y).normalize();
