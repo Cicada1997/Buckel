@@ -9,15 +9,9 @@ use crate::{
 use {
     std::f32::consts::PI,
     glam::{ Mat4, Vec3, vec3 },
-    glow::{
-        Context,
-        HasContext,
-        NativeBuffer,
-    },
+    glow::HasContext,
     sdl2::{
-        keyboard::{
-            Scancode,
-        },
+        keyboard::Scancode,
         mouse::MouseButton,
         event::Event,
     },
@@ -27,39 +21,6 @@ pub type Error = Box<dyn std::error::Error>;
 
 static FOV: f32 = 90.0;
 static MOUSE_SENSATIVITY: f32 = 6.0;
-
-// fn update_chunk(gl: &glow::Context, vbo: &mut NativeBuffer, vertex_count: &mut i32, mesh: &Vec<f32>) {
-//     *vertex_count = (mesh.len() / 3) as i32;
-//     unsafe {
-//         gl.bind_buffer(glow::ARRAY_BUFFER, Some(*vbo));
-//         gl.buffer_data_u8_slice(
-//             glow::ARRAY_BUFFER,
-//             bytemuck::cast_slice(mesh),
-//             glow::DYNAMIC_DRAW,
-//         );
-//     }
-// }
-
-fn create_chunk_vbo(gl: Context) -> NativeBuffer {
-    unsafe {
-        // let vao = gl.create_vertex_array().unwrap();
-        let vbo = gl.create_buffer().unwrap();
-
-        // gl.bind_vertex_array(Some(vao));
-        gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
-
-        // gl.buffer_data_u8_slice(
-        //     glow::ARRAY_BUFFER, 
-        //     bytemuck::cast_slice(&world.last_mesh), 
-        //     glow::STATIC_DRAW 
-        // );
-
-        gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 0, 0);
-        gl.enable_vertex_attrib_array(0);
-
-        return vbo;
-    };
-}
 
 fn main() {
     let ctx = {
@@ -90,28 +51,6 @@ fn main() {
         gl.enable(glow::DEPTH_TEST);
         gl
     };
-
-    // world.nearby_chunk_mesh(vec3(0., 0., 0.));
-    // let mut vertex_count = (world.last_mesh.len() / 3) as i32;
-
-    // let (vao, mut vbo) = unsafe {
-    //     let vao = gl.create_vertex_array().unwrap();
-    //     let vbo = gl.create_buffer().unwrap();
-    //
-    //     gl.bind_vertex_array(Some(vao));
-    //     gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
-    //
-    //     gl.buffer_data_u8_slice(
-    //         glow::ARRAY_BUFFER, 
-    //         bytemuck::cast_slice(&world.last_mesh), 
-    //         glow::STATIC_DRAW 
-    //     );
-    //
-    //     gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 0, 0);
-    //     gl.enable_vertex_attrib_array(0);
-    //
-    //     (vao, vbo)
-    // };
 
     let vertex_shader_source = r#"
         #version 330 core
@@ -162,7 +101,7 @@ fn main() {
     let mut event_pump = ctx.sdl.event_pump().unwrap();
 
 
-    let mut selected_block = 1;
+    let selected_block = 1;
 
     'running: loop {
         let mut movement_speed = 14.;
@@ -185,10 +124,6 @@ fn main() {
                     }
                 }
 
-                // Event::KeyDown { keymod: Mod::LSHIFTMOD, .. } => {
-                //     movement_speed = 120.;
-                // }
-                //
                 Event::MouseMotion { xrel, yrel, .. } => {
                     cam.angle.y += (xrel as f32 / 1000.0) * MOUSE_SENSATIVITY;
                     cam.angle.x -= (yrel as f32 / 1000.0) * MOUSE_SENSATIVITY;
@@ -229,7 +164,7 @@ fn main() {
 
         let ks = event_pump.keyboard_state();
         if event_pump.is_event_enabled(sdl2::event::EventType::KeyDown) {
-            movement_speed = 120.;
+            movement_speed = 40.;
         }
 
         let front = cam.flat_front();
