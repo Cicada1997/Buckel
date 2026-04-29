@@ -1,28 +1,59 @@
-use glow::{NativeUniformLocation, NativeVertexArray};
-
 use crate::{
     limit,
-    Error,
+    coordinate::{
+        Formable3D,
+        ChunkPosition,
+        ChunkRelativePosition,
+        WorldPosition,
+    },
 };
 
 use {
-    std::collections::HashMap,
     glam::{
-        Vec3,
-        Mat4,
+        vec3,
     },
     glow::{
+        NativeVertexArray,
         Context,
         HasContext,
         NativeBuffer,
     },
 };
 
+pub struct Vertex {
+    pub pos: [f32; 3],
+    pub uv: [f32; 2],
+}
+
+impl Vertex {
+    pub fn new(pos: (f32, f32, f32), uv: (f32, f32)) -> Self {
+        Self {
+            pos: [pos.0, pos.1, pos.2],
+            uv: [uv.0, uv.1]
+        }
+    }
+
+    pub fn relative(pos_std: &WorldPosition, pos: (f32, f32, f32), uv: (f32, f32)) -> Self {
+        let world = pos_std.world();
+
+        Self::new((
+            pos.0 + world.x,
+            pos.1 + world.y,
+            pos.2 + world.z,
+        ), uv)
+    }
+
+    pub fn to_slice(self) -> [f32; 5] {
+        return [self.pos[0], self.pos[1], self.pos[2], self.uv[0], self.uv[1]];
+    }
+}
+
 pub static SEED:   u32 = 12938;
-pub static CHUNK_SIZE:   u16 = 16;
+pub static CHUNK_SIZE:   u16 = 14;
+pub static CHUNK_PADDING: u16 = 2;
 pub static CHUNK_HEIGHT: u16 = 256;
 pub static RENDER_DISTANCE: i32 = 16;
-pub type ByteChunkLayer      = [u16;            CHUNK_SIZE   as usize];
+pub type ByteChunkLayer      = [u16;            (CHUNK_SIZE + CHUNK_PADDING) as usize];
 pub type ByteChunk           = [ByteChunkLayer; CHUNK_HEIGHT as usize];
 
 pub struct Chunk {
@@ -35,11 +66,11 @@ pub struct Chunk {
 }
 
 pub static BLOCK_TYPE_COUNT: usize = 3;
-type BlockTypeId = usize;
+pub type BlockTypeId = usize;
 
 /// Z is bit position
 impl Chunk {
-    fn new(pos: ChunkPosition, gl: &Context) -> Self {
+    pub fn new(pos: ChunkPosition, gl: &Context) -> Self {
         let (vao, vbo) = unsafe {
             let vao = gl.create_vertex_array().unwrap();
             let vbo = gl.create_buffer().unwrap();
@@ -48,14 +79,19 @@ impl Chunk {
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
             
             // Define layout WHILE the VAO is bound
-            gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 0, 0);
+            // pos
+            gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 20, 0);
+            // uv texture coords
+            gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, 20, 12);
+
             gl.enable_vertex_attrib_array(0);
+            gl.enable_vertex_attrib_array(1);
             
             (vao, vbo)
         };
 
         let mut chunk = Self { 
-            blocks: [[[0u16; CHUNK_SIZE as usize]; CHUNK_HEIGHT as usize]; BLOCK_TYPE_COUNT],
+            blocks: [[[0u16; (CHUNK_SIZE + CHUNK_PADDING) as usize]; CHUNK_HEIGHT as usize]; BLOCK_TYPE_COUNT],
             mesh: Vec::new(),
             pos,
             vbo,
@@ -64,8 +100,6 @@ impl Chunk {
         };
 
         chunk.gen_perlin();
-        // chunk.gen_mesh(); // Call this to generate initial mesh
-        // chunk.upload_mesh(gl); // Send to GPU
         chunk
     }
 
@@ -80,7 +114,7 @@ impl Chunk {
         }
     }
 
-    fn render(&self, gl: &Context) {
+    pub(super) fn render(&self, gl: &Context) {
         let vertex_count = (self.mesh.len() / 3) as i32;
         if vertex_count == 0 { return; }
         
@@ -90,18 +124,22 @@ impl Chunk {
         }
     }
 
-    fn mesh_coord(&self, x: usize, y: usize, z: usize) -> Vec3 {
-        let world_x_offset = self.pos.0 as f32 * CHUNK_SIZE as f32;
-        let world_z_offset = self.pos.1 as f32 * CHUNK_SIZE as f32;
-
-        let fx = x as f32 + world_x_offset;
-        let fy = y as f32;
-        let fz = z as f32 + world_z_offset;
-
-        return Vec3 { x: fx, y: fy, z: fz };
+    fn mesh_coord(&self, x: usize, y: usize, z: usize) -> WorldPosition {
+        // let world_x_offset = self.pos.x as f32 * CHUNK_SIZE as f32 - self.pos.x as f32;
+        // let world_z_offset = self.pos.y as f32 * CHUNK_SIZE as f32 - self.pos.y as f32;
+        //
+        // let fx = x as f32 + world_x_offset;
+        // let fy = y as f32;
+        // let fz = z as f32 + world_z_offset;
+        //
+        // return Vec3 { x: fx, y: fy, z: fz };
+        return WorldPosition {
+            chunk_position: self.pos,
+            relative_position: vec3(x as f32, y as f32, z as f32) - vec3(self.pos.x, 0., self.pos.y,),
+        }
     }
 
-    fn gen_mesh(&mut self) {
+    pub(super) fn gen_mesh(&mut self) {
                 
         let mut mesh = Vec::new();
 
@@ -109,95 +147,137 @@ impl Chunk {
             for y in 0..CHUNK_HEIGHT as usize {
                 let layer = bytechunk[y];
 
-                for x in 0..CHUNK_SIZE as usize {
+                for x in 1..CHUNK_SIZE as usize {
                     let row = layer[x];
 
                     // (-Z) x-shift right 
                     let render_scheme = (!row & (row >> 1)) << 1;
-                    for z in 0..CHUNK_SIZE {
+                    for z in 1..CHUNK_SIZE {
                         let pos = self.mesh_coord(x, y, z as usize);
                         if render_scheme >> z & 1 == 1 {
-                            mesh.extend_from_slice(&[
-                                pos.x+0., pos.y+0., pos.z+0.,   pos.x+0., pos.y+1., pos.z+0.,   pos.x+1., pos.y+1., pos.z+0., 
-                                pos.x+1., pos.y+1., pos.z+0.,   pos.x+1., pos.y+0., pos.z+0.,   pos.x+0., pos.y+0., pos.z+0.,
-                            ]);
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (0., 0., 0.), (0., 0.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (0., 1., 0.), (0., 1.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 0.), (1., 1.)).to_slice());
+
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 0.), (1., 1.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 0., 0.), (1., 0.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (0., 0., 0.), (0., 0.)).to_slice());
+                                // // pos.x+0., pos.y+0., pos.z+0.,   pos.x+0., pos.y+1., pos.z+0.,   pos.x+1., pos.y+1., pos.z+0., 
+                                // // pos.x+1., pos.y+1., pos.z+0.,   pos.x+1., pos.y+0., pos.z+0.,   pos.x+0., pos.y+0., pos.z+0.,
+                            // ]);
                         }
                     }
 
                     // (+Z) x-shift left
                     let render_scheme = (!row & (row << 1)) >> 1;
-                    for z in 0..CHUNK_SIZE {
+                    for z in 1..CHUNK_SIZE {
                         if render_scheme >> z & 1 == 1 {
                             let pos = self.mesh_coord(x, y, z as usize);
 
-                            mesh.extend_from_slice(&[
-                                pos.x+0., pos.y+0., pos.z+1.,   pos.x+1., pos.y+0., pos.z+1.,   pos.x+1., pos.y+1., pos.z+1., 
-                                pos.x+1., pos.y+1., pos.z+1.,   pos.x+0., pos.y+1., pos.z+1.,   pos.x+0., pos.y+0., pos.z+1.,
-                            ]);
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (0., 0., 1.), (0., 0.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 0., 1.), (0., 1.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 1.), (1., 1.)).to_slice());
+
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 1.), (1., 1.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (0., 1., 1.), (1., 0.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (0., 0., 1.), (0., 0.)).to_slice());
+                            // mesh.extend_from_slice(&[
+                            //     pos.x+0., pos.y+0., pos.z+1.,   pos.x+1., pos.y+0., pos.z+1.,   pos.x+1., pos.y+1., pos.z+1., 
+                            //     pos.x+1., pos.y+1., pos.z+1.,   pos.x+0., pos.y+1., pos.z+1.,   pos.x+0., pos.y+0., pos.z+1.,
+                            // ]);
                         }
                     }
 
                     // (+X) z-shift right
                     let left_row = layer[(x+1).clamp(0, 15)];
                     let render_scheme = row & !left_row;
-                    for z in 0..CHUNK_SIZE {
+                    for z in 1..CHUNK_SIZE {
                         if render_scheme >> z & 1 == 1 {
                             let pos = self.mesh_coord(x, y, z as usize);
-                            mesh.extend_from_slice(&[
-                                pos.x+1., pos.y+0., pos.z+0.,   pos.x+1., pos.y+1., pos.z+0.,   pos.x+1., pos.y+1., pos.z+1., 
-                                pos.x+1., pos.y+1., pos.z+1.,   pos.x+1., pos.y+0., pos.z+1.,   pos.x+1., pos.y+0., pos.z+0.,
-                            ]);
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 0., 0.), (0., 0.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 0.), (0., 1.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 1.), (1., 1.)).to_slice());
+
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 1.), (1., 1.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 0., 1.), (1., 0.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 0., 0.), (0., 0.)).to_slice());
+                            // mesh.extend_from_slice(&[
+                            //     pos.x+1., pos.y+0., pos.z+0.,   pos.x+1., pos.y+1., pos.z+0.,   pos.x+1., pos.y+1., pos.z+1., 
+                            //     pos.x+1., pos.y+1., pos.z+1.,   pos.x+1., pos.y+0., pos.z+1.,   pos.x+1., pos.y+0., pos.z+0.,
+                            // ]);
                         }
                     }
 
                     // (-X) z-shift left
                     let right_row = layer[x.checked_sub(1).unwrap_or(0)];
                     let render_scheme = row & !right_row;
-                    for z in 0..CHUNK_SIZE {
+                    for z in 1..CHUNK_SIZE {
                         if render_scheme >> z & 1 == 1 {
                             let pos = self.mesh_coord(x-1, y, z as usize);
-                            mesh.extend_from_slice(&[
-                                pos.x+1., pos.y+0., pos.z+0.,   pos.x+1., pos.y+1., pos.z+0.,   pos.x+1., pos.y+1., pos.z+1., 
-                                pos.x+1., pos.y+1., pos.z+1.,   pos.x+1., pos.y+0., pos.z+1.,   pos.x+1., pos.y+0., pos.z+0.,
-                            ]);
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 0., 0.), (0., 0.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 0.), (0., 1.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 1.), (1., 1.)).to_slice());
+
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 1.), (1., 1.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 0., 1.), (1., 0.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 0., 0.), (0., 0.)).to_slice());
+                            // mesh.extend_from_slice(&[
+                            //     pos.x+1., pos.y+0., pos.z+0.,   pos.x+1., pos.y+1., pos.z+0.,   pos.x+1., pos.y+1., pos.z+1., 
+                            //     pos.x+1., pos.y+1., pos.z+1.,   pos.x+1., pos.y+0., pos.z+1.,   pos.x+1., pos.y+0., pos.z+0.,
+                            // ]);
                         }
                     }
 
-                    let a = [16u16; CHUNK_SIZE as usize];
+                    let a = [16u16; (CHUNK_SIZE + CHUNK_PADDING) as usize];
                     let next_layer = bytechunk.get(y+1).unwrap_or(&a);
                     let next_layer_row = next_layer[x];
 
                     // (+Y)
                     let render_scheme = row & !next_layer_row;
-                    for z in 0..CHUNK_SIZE {
+                    for z in 1..CHUNK_SIZE {
                         if render_scheme >> z & 1 == 1 {
                             let pos = self.mesh_coord(x, y, z as usize);
 
-                            mesh.extend_from_slice(&[
-                                pos.x+0., pos.y+1., pos.z+0.,   pos.x+0., pos.y+1., pos.z+1.,   pos.x+1., pos.y+1., pos.z+1., 
-                                pos.x+1., pos.y+1., pos.z+1.,   pos.x+1., pos.y+1., pos.z+0.,   pos.x+0., pos.y+1., pos.z+0.,
-                            ]);
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (0., 1., 0.), (0., 0.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (0., 1., 1.), (0., 1.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 1.), (1., 1.)).to_slice());
+
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 1.), (1., 1.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 0.), (1., 0.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (0., 1., 0.), (0., 0.)).to_slice());
+
+                            // mesh.extend_from_slice(&[
+                            //     pos.x+0., pos.y+1., pos.z+0.,   pos.x+0., pos.y+1., pos.z+1.,   pos.x+1., pos.y+1., pos.z+1., 
+                            //     pos.x+1., pos.y+1., pos.z+1.,   pos.x+1., pos.y+1., pos.z+0.,   pos.x+0., pos.y+1., pos.z+0.,
+                            // ]);
                         }
                     }
 
                     let past_layer = bytechunk.get(y.checked_sub(1).unwrap_or(0)).unwrap_or(&a);
                     let past_layer_row = past_layer[x];
                     let render_scheme = row & !past_layer_row;
-                    for z in 0..CHUNK_SIZE {
+                    for z in 1..CHUNK_SIZE {
                         if render_scheme >> z & 1 == 1 {
                             let pos = self.mesh_coord(x, y, z as usize);
 
-                            mesh.extend_from_slice(&[
-                                pos.x+0., pos.y+0., pos.z+0.,   pos.x+0., pos.y+0., pos.z+1.,   pos.x+1., pos.y+0., pos.z+1., 
-                                pos.x+1., pos.y+0., pos.z+1.,   pos.x+1., pos.y+0., pos.z+0.,   pos.x+0., pos.y+0., pos.z+0.,
-                            ]);
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (0., 0., 0.), (0., 0.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (0., 0., 1.), (0., 1.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 0., 1.), (1., 1.)).to_slice());
+
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 0., 1.), (1., 1.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (1., 0., 0.), (1., 0.)).to_slice());
+                            mesh.extend_from_slice(&Vertex::relative(&pos, (0., 0., 0.), (0., 0.)).to_slice());
+
+                            // mesh.extend_from_slice(&[
+                            //     pos.x+0., pos.y+0., pos.z+0.,   pos.x+0., pos.y+0., pos.z+1.,   pos.x+1., pos.y+0., pos.z+1., 
+                            //     pos.x+1., pos.y+0., pos.z+1.,   pos.x+1., pos.y+0., pos.z+0.,   pos.x+0., pos.y+0., pos.z+0.,
+                            // ]);
                         }
                     }
                 }
             }
         }
 
-        // self.mesh.clear();
         self.mesh = mesh;
 
         self.dirty = false;
@@ -217,22 +297,25 @@ impl Chunk {
 
         for x in 0..CHUNK_SIZE as i32 {
             for z in 0..CHUNK_SIZE as i32 {
-                let world_x = (x + self.pos.0 * CHUNK_SIZE as i32) as f64;
-                let world_z = (z + self.pos.1 * CHUNK_SIZE as i32) as f64;
+
+                let world_x = (x as f32 + self.pos.x * CHUNK_SIZE as f32 - self.pos.x) as f64;
+                let world_z = (z as f32 + self.pos.y * CHUNK_SIZE as f32 - self.pos.y) as f64;
 
                 let noise_val = perlin.get([world_x * frequency, world_z * frequency]) + perlin2.get([world_x * frequency, world_z * frequency]);
                 let height = ((noise_val + 1.0) * 0.5 * terrain_height_multiplier + sea_level) as i32;
 
                 for y in 0..CHUNK_HEIGHT as i32 {
                     if y <= height {
-                        self.set_block(x as usize, y as usize, z as usize, Some(1));
+                        self.set_block(ChunkRelativePosition::new(x as f32, y as f32, z as f32), Some(1));
                     }
                 }
             }
         }
     }
 
-    pub fn get_block(&self, x: usize, y: usize, z: usize) -> Option<BlockTypeId> {
+    pub fn get_block(&self, pos: &ChunkRelativePosition) -> Option<BlockTypeId> {
+        let (x, y, z) = pos.iterform();
+
         limit!(x, CHUNK_SIZE as usize,   "chunk relative position outside chunk");
         limit!(y, CHUNK_HEIGHT as usize, "chunk relative position outside chunk");
         limit!(z, CHUNK_SIZE as usize,   "chunk relative position outside chunk");
@@ -246,7 +329,8 @@ impl Chunk {
         return None;
     }
 
-    pub fn set_block(&mut self, x: usize, y: usize, z: usize, block_type: Option<BlockTypeId>) {
+    pub fn set_block(&mut self, pos: ChunkRelativePosition, block_type: Option<BlockTypeId>) {
+        let (x, y, z) = pos.iterform();
         limit!(x, CHUNK_SIZE as usize,   "chunk relative position outside chunk");
         limit!(y, CHUNK_HEIGHT as usize, "chunk relative position outside chunk");
         limit!(z, CHUNK_SIZE as usize,   "chunk relative position outside chunk");
@@ -255,140 +339,10 @@ impl Chunk {
             self.blocks[block_type][y][x] = self.blocks[block_type][y][x] | (1 << z);
         } else {
             for bytechunk in self.blocks.iter_mut() {
-                bytechunk[y][x] = bytechunk[y][x] & !(1 << z);
+                bytechunk[y][x] = bytechunk[y][x] & !(1 << z+1);
             }
         }
 
         self.dirty = true;
-    }
-}
-
-pub type ChunkPosition = (i32, i32);
-pub struct VoxelWorld {
-    world: HashMap<ChunkPosition, Chunk>,
-    pub transform_loc: Option<NativeUniformLocation>,
-    // pub last_mesh: Vec<f32>,
-}
-
-impl Default for VoxelWorld {
-    fn default() -> Self {
-        Self {
-            world: HashMap::new(),
-            transform_loc: None,
-        }
-    }
-}
-
-impl VoxelWorld {
-    pub fn chunk_pos(x: i32, z: i32) -> ChunkPosition {
-        let cx = (x as f32 / CHUNK_SIZE as f32).floor() as i32;
-        let cz = (z as f32 / CHUNK_SIZE as f32).floor() as i32;
-
-        return (cx, cz);
-    }
-
-    pub fn set_block(&mut self, x: i32, y: i32, z: i32, block_type: Option<BlockTypeId>) -> Result<(), Error> {
-        let cp = Self::chunk_pos(x, z);
-
-        let local_x = x.rem_euclid(CHUNK_SIZE as i32) as usize;
-        let local_z = z.rem_euclid(CHUNK_SIZE as i32) as usize;
-
-        if y >= 0 && y < CHUNK_HEIGHT as i32 {
-            let chunk = self.world.get_mut(&cp).ok_or("Chunk entry does not exist ({}, {}).")?;
-            chunk.dirty = true;
-            chunk.set_block(local_x, y as usize, local_z, block_type);
-        }
-
-        Ok(())
-    }
-
-    pub fn get_block(&self, x: i32, y: i32, z: i32) -> Option<BlockTypeId> {
-        let cp = Self::chunk_pos(x as i32, z as i32);
-        
-        let local_x = (x % CHUNK_SIZE as i32) as usize;
-        let local_z = (z % CHUNK_SIZE as i32) as usize;
-
-        if let Some(chunk) = self.world.get(&cp) {
-            return chunk.get_block(local_x, y as usize, local_z)
-        }
-
-        None
-    }
-
-    pub fn build_chunk(&mut self, gl: &Context, pos: &ChunkPosition) {
-        self.world.insert(*pos, 
-            Chunk::new(*pos, gl)
-        );
-    }
-
-    pub fn try_build_nearby_chunks(&mut self, gl: &Context, position: &Vec3) {
-        let p_cx = (position.x / CHUNK_SIZE as f32).floor() as i32;
-        let p_cz = (position.z / CHUNK_SIZE as f32).floor() as i32;
-
-
-        for cx in (p_cx - RENDER_DISTANCE)..=(p_cx + RENDER_DISTANCE) {
-            for cz in (p_cz - RENDER_DISTANCE)..=(p_cz + RENDER_DISTANCE) {
-                let cp = (cx, cz);
-
-                match self.world.get_mut(&cp) {
-                    Some(chunk) => {
-                        if chunk.dirty {
-                            chunk.gen_mesh();
-                            chunk.upload_mesh(gl);
-                        }
-                    }
-                    None => {
-                        let mut new_chunk = Chunk::new(cp, gl);
-                        new_chunk.gen_mesh();
-                        new_chunk.upload_mesh(gl);
-                        self.world.insert(cp, new_chunk);
-                    }
-                }
-
-                // let chunk = self.world.get(&cp).expect("Building chunk failed; could not get chunk after meshbuild (should assure chunk exists).");
-
-                // let world_x_offset = cx as f32 * CHUNK_SIZE as f32;
-                // let world_z_offset = cz as f32 * CHUNK_SIZE as f32;
-                //
-                // for i in (0..chunk.mesh.len()).step_by(3) {
-                //     total_mesh.push(chunk.mesh[i] + world_x_offset);
-                //     total_mesh.push(chunk.mesh[i + 1]);
-                //     total_mesh.push(chunk.mesh[i + 2] + world_z_offset);
-                // }
-            }
-        }
-    }
-
-    pub fn render(&mut self, gl: &Context, position: &Vec3, mvp: &Mat4) {
-        let p_cx = (position.x / CHUNK_SIZE as f32).floor() as i32;
-        let p_cz = (position.z / CHUNK_SIZE as f32).floor() as i32;
-
-        unsafe {
-            gl.uniform_matrix_4_f32_slice(self.transform_loc.as_ref(), false, &mvp.to_cols_array());
-        }
-
-        for cx in (p_cx - RENDER_DISTANCE)..=(p_cx + RENDER_DISTANCE) {
-            for cz in (p_cz - RENDER_DISTANCE)..=(p_cz + RENDER_DISTANCE) {
-                let cp = (cx, cz);
-
-                unsafe {
-                    gl.uniform_matrix_4_f32_slice(self.transform_loc.as_ref(), false, &mvp.to_cols_array());
-                }
-                if let Some(chunk) = self.world.get_mut(&cp) {
-                    chunk.render(gl);
-                }
-
-                // let chunk = self.world.get(&cp).expect("Building chunk failed; could not get chunk after meshbuild (should assure chunk exists).");
-
-                // let world_x_offset = cx as f32 * CHUNK_SIZE as f32;
-                // let world_z_offset = cz as f32 * CHUNK_SIZE as f32;
-                //
-                // for i in (0..chunk.mesh.len()).step_by(3) {
-                //     total_mesh.push(chunk.mesh[i] + world_x_offset);
-                //     total_mesh.push(chunk.mesh[i + 1]);
-                //     total_mesh.push(chunk.mesh[i + 2] + world_z_offset);
-                // }
-            }
-        }
     }
 }

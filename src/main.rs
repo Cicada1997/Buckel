@@ -1,9 +1,15 @@
+pub mod textures;
+pub mod coordinate;
 pub mod camera;
 pub mod utils;
 pub mod chunk;
+pub mod world;
 
 use crate::{
-    camera::Camera, chunk::{VoxelWorld}, utils::SdlContext
+    camera::Camera,
+    world::VoxelWorld,
+    coordinate::WorldPosition,
+    utils::SdlContext,
 };
 
 use {
@@ -44,6 +50,7 @@ fn main() {
     let gl_attr = ctx.video.gl_attr();
     gl_attr.set_context_profile(sdl2::video::GLProfile::Core);
     gl_attr.set_context_version(3, 3);
+    gl_attr.set_depth_size(24);
 
     let _gl_context = ctx.window.gl_create_context().unwrap();
     let gl = unsafe {
@@ -51,29 +58,55 @@ fn main() {
         gl.enable(glow::DEPTH_TEST);
         gl
     };
-
     let vertex_shader_source = r#"
         #version 330 core
         layout (location = 0) in vec3 aPos;
+        layout (location = 1) in vec2 aTexCoord; // 1. Accept UV coords from buffer
+
         uniform mat4 u_transform;
-        out vec3 vLocalPos;
+        out vec2 vTexCoord; // 2. Pass UVs to the fragment shader
 
         void main() { 
             gl_Position = u_transform * vec4(aPos, 1.0); 
-            vLocalPos = aPos; 
+            vTexCoord = aTexCoord; 
         }
     "#;
 
     let fragment_shader_source = r#"
         #version 330 core
-        in vec3 vLocalPos;
+        in vec2 vTexCoord; // 1. Receive UVs from vertex shader
         out vec4 FragColor;
 
+        uniform sampler2D u_Texture; // 2. Accept the bound texture
+
         void main() {
-            FragColor = vec4(fract(vLocalPos), 1.0); 
+            // 3. Sample the pixel color from the texture
+            FragColor = texture(u_Texture, vTexCoord); 
         }
     "#;
-
+    //
+    // let vertex_shader_source = r#"
+    //     #version 330 core
+    //     layout (location = 0) in vec3 aPos;
+    //     uniform mat4 u_transform;
+    //     out vec3 vLocalPos;
+    //
+    //     void main() { 
+    //         gl_Position = u_transform * vec4(aPos, 1.0); 
+    //         vLocalPos = aPos; 
+    //     }
+    // "#;
+    //
+    // let fragment_shader_source = r#"
+    //     #version 330 core
+    //     in vec3 vLocalPos;
+    //     out vec4 FragColor;
+    //
+    //     void main() {
+    //         FragColor = vec4(255.0, 255.0, 255.0, 1.0); 
+    //     }
+    // "#;
+    //
     let program       = unsafe { create_program(&gl, vertex_shader_source, fragment_shader_source) };
     let transform_loc = unsafe { gl.get_uniform_location(program, "u_transform") }.expect("Could not get uniform location");
 
@@ -100,6 +133,7 @@ fn main() {
     let mut last_frame_time = timer.ticks();
     let mut event_pump = ctx.sdl.event_pump().unwrap();
 
+    let texture = textures::load_texture("example.jpg", &gl).unwrap();
 
     let selected_block = 1;
 
@@ -130,21 +164,22 @@ fn main() {
                 }
 
                 Event::MouseButtonDown { mouse_btn, .. } => {
-                    let bx = pos.x.floor() as i32;
-                    let by = pos.y.floor() as i32;
-                    let bz = pos.z.floor() as i32;
+                    // let bx = pos.x.floor() as i32;
+                    // let by = pos.y.floor() as i32;
+                    // let bz = pos.z.floor() as i32;
 
+                    let wpos = WorldPosition::from_world_pos(&pos);
                     match mouse_btn {
                         MouseButton::Right => {
-                            if world.set_block(bx, by, bz, Some(selected_block)).is_err() {
-                                world.build_chunk(&gl, &VoxelWorld::chunk_pos(bx, bz));
-                                world.set_block(bx, by, bz, Some(selected_block)).unwrap();
+                            if world.set_block(&wpos, Some(selected_block)).is_err() {
+                                world.build_chunk(&gl, &wpos.chunk_position);
+                                world.set_block(&wpos, Some(selected_block)).unwrap();
                             }
                         }
                         MouseButton::Left => {
-                            if world.set_block(bx, by, bz, None).is_err() {
-                                world.build_chunk(&gl, &VoxelWorld::chunk_pos(bx, bz));
-                                world.set_block(bx, by, bz, None).unwrap();
+                            if world.set_block(&wpos, None).is_err() {
+                                world.build_chunk(&gl, &wpos.chunk_position);
+                                world.set_block(&wpos, None).unwrap();
                             }
                         }
                         _ => {}
@@ -160,7 +195,7 @@ fn main() {
         let delta_time  = (now - last_frame_time) as f32 / 1000.0;
         last_frame_time = now;
 
-        print!("\rFPS: {:.2}", 1. / fps_time);
+        print!("\rFPS: {:.2} pos: {}", 1. / fps_time, &cam.pos);
 
         let ks = event_pump.keyboard_state();
         if event_pump.is_event_enabled(sdl2::event::EventType::KeyDown) {
@@ -195,7 +230,7 @@ fn main() {
 
         cam.update_view(&mut view);
 
-        world.try_build_nearby_chunks(&gl, &cam.pos);
+        world.try_build_nearby_chunks(&gl, &WorldPosition::from_world_pos(&cam.pos));
          
         // update_chunk(&gl, &mut vertex_count, &world.last_mesh);
 
@@ -204,15 +239,10 @@ fn main() {
             gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
 
             gl.use_program(Some(program));
-            // gl.bind_vertex_array(Some(vao));
+            gl.bind_texture(glow::TEXTURE_2D, Some(texture));
 
             let mvp = projection * view * Mat4::IDENTITY;
             world.render(&gl, &cam.pos, &mvp);
-            // if vertex_count > 0 {
-            //     let chunk_model = Mat4::IDENTITY;
-            //     gl.uniform_matrix_4_f32_slice(transform_loc.as_ref(), false, &chunk_mvp.to_cols_array());
-            //     gl.draw_arrays(glow::TRIANGLES, 0, vertex_count);
-            // }
         }
 
         ctx.window.gl_swap_window();

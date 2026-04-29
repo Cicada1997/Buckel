@@ -4,7 +4,6 @@ use {
 
 pub struct Camera {
     pub angle:  Vec3,
-
     pub pos:    Vec3,
 }
 
@@ -12,6 +11,24 @@ pub struct Camera {
 impl Camera {
     pub fn update_view(&self, view: &mut Mat4) {
         *view = Mat4::look_at_rh(self.pos, self.pos + self.front(), Vec3::Y);
+    }
+
+    // set
+    pub fn set_pitch(&mut self) {
+
+    }
+
+    pub fn set_jaw(&mut self) {
+
+    }
+
+    // add
+    pub fn add_pitch(&mut self) {
+
+    }
+
+    pub fn add_jaw(&mut self) {
+
     }
 
     pub fn front(&self) -> Vec3 {
