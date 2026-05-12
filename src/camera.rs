@@ -1,16 +1,18 @@
+use crate::WorldPosition;
+
 use {
     glam::{ Mat4, Vec3, vec3 },
 };
 
 pub struct Camera {
     pub angle:  Vec3,
-    pub pos:    Vec3,
+    pub pos:    WorldPosition,
 }
 
 
 impl Camera {
     pub fn update_view(&self, view: &mut Mat4) {
-        *view = Mat4::look_at_rh(self.pos, self.pos + self.front(), Vec3::Y);
+        *view = Mat4::look_at_rh(self.pos.world_position, self.pos.world_position + self.front(), Vec3::Y);
     }
 
     // set

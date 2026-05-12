@@ -9,9 +9,6 @@ use crate::{
 };
 
 use {
-    glam::{
-        vec3,
-    },
     glow::{
         NativeVertexArray,
         Context,
@@ -34,7 +31,7 @@ impl Vertex {
     }
 
     pub fn relative(pos_std: &WorldPosition, pos: (f32, f32, f32), uv: (f32, f32)) -> Self {
-        let world = pos_std.world();
+        let world = pos_std.world_position;
 
         Self::new((
             pos.0 + world.x,
@@ -68,7 +65,7 @@ pub struct Chunk {
 pub static BLOCK_TYPE_COUNT: usize = 3;
 pub type BlockTypeId = usize;
 
-/// Z is bit position
+// Z is bit position
 impl Chunk {
     pub fn new(pos: ChunkPosition, gl: &Context) -> Self {
         let (vao, vbo) = unsafe {
@@ -125,25 +122,23 @@ impl Chunk {
     }
 
     fn mesh_coord(&self, x: usize, y: usize, z: usize) -> WorldPosition {
-        // let world_x_offset = self.pos.x as f32 * CHUNK_SIZE as f32 - self.pos.x as f32;
-        // let world_z_offset = self.pos.y as f32 * CHUNK_SIZE as f32 - self.pos.y as f32;
-        //
-        // let fx = x as f32 + world_x_offset;
-        // let fy = y as f32;
-        // let fz = z as f32 + world_z_offset;
-        //
-        // return Vec3 { x: fx, y: fy, z: fz };
-        return WorldPosition {
-            chunk_position: self.pos,
-            relative_position: vec3(x as f32, y as f32, z as f32) - vec3(self.pos.x, 0., self.pos.y,),
-        }
+        // TODO:
+        // the offset below makes the world makes the chunks align,
+        // allthough it unaligns the world position applied to chunks
+        // from the world position applied to enitites (positional
+        // things outside the voxelworld).
+        WorldPosition::new(
+            x as f32 + CHUNK_SIZE as f32 * self.pos.x - self.pos.x,
+            y as f32, 
+            z as f32 + CHUNK_SIZE as f32 * self.pos.y - self.pos.y
+        )
     }
 
     pub(super) fn gen_mesh(&mut self) {
                 
-        let mut mesh = Vec::new();
+        let mut mesh = Vec::<f32>::new();
 
-        for (_block_type_id, bytechunk) in self.blocks.iter().enumerate() {
+        for bytechunk in self.blocks.iter() {
             for y in 0..CHUNK_HEIGHT as usize {
                 let layer = bytechunk[y];
 
@@ -152,8 +147,8 @@ impl Chunk {
 
                     // (-Z) x-shift right 
                     let render_scheme = (!row & (row >> 1)) << 1;
-                    for z in 1..CHUNK_SIZE {
-                        let pos = self.mesh_coord(x, y, z as usize);
+                    for z in 1..CHUNK_SIZE as usize {
+                        let pos = self.mesh_coord(x, y, z);
                         if render_scheme >> z & 1 == 1 {
                             mesh.extend_from_slice(&Vertex::relative(&pos, (0., 0., 0.), (0., 0.)).to_slice());
                             mesh.extend_from_slice(&Vertex::relative(&pos, (0., 1., 0.), (0., 1.)).to_slice());
@@ -162,17 +157,14 @@ impl Chunk {
                             mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 0.), (1., 1.)).to_slice());
                             mesh.extend_from_slice(&Vertex::relative(&pos, (1., 0., 0.), (1., 0.)).to_slice());
                             mesh.extend_from_slice(&Vertex::relative(&pos, (0., 0., 0.), (0., 0.)).to_slice());
-                                // // pos.x+0., pos.y+0., pos.z+0.,   pos.x+0., pos.y+1., pos.z+0.,   pos.x+1., pos.y+1., pos.z+0., 
-                                // // pos.x+1., pos.y+1., pos.z+0.,   pos.x+1., pos.y+0., pos.z+0.,   pos.x+0., pos.y+0., pos.z+0.,
-                            // ]);
                         }
                     }
 
                     // (+Z) x-shift left
                     let render_scheme = (!row & (row << 1)) >> 1;
-                    for z in 1..CHUNK_SIZE {
+                    for z in 1..CHUNK_SIZE as usize {
                         if render_scheme >> z & 1 == 1 {
-                            let pos = self.mesh_coord(x, y, z as usize);
+                            let pos = self.mesh_coord(x, y, z);
 
                             mesh.extend_from_slice(&Vertex::relative(&pos, (0., 0., 1.), (0., 0.)).to_slice());
                             mesh.extend_from_slice(&Vertex::relative(&pos, (1., 0., 1.), (0., 1.)).to_slice());
@@ -181,19 +173,15 @@ impl Chunk {
                             mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 1.), (1., 1.)).to_slice());
                             mesh.extend_from_slice(&Vertex::relative(&pos, (0., 1., 1.), (1., 0.)).to_slice());
                             mesh.extend_from_slice(&Vertex::relative(&pos, (0., 0., 1.), (0., 0.)).to_slice());
-                            // mesh.extend_from_slice(&[
-                            //     pos.x+0., pos.y+0., pos.z+1.,   pos.x+1., pos.y+0., pos.z+1.,   pos.x+1., pos.y+1., pos.z+1., 
-                            //     pos.x+1., pos.y+1., pos.z+1.,   pos.x+0., pos.y+1., pos.z+1.,   pos.x+0., pos.y+0., pos.z+1.,
-                            // ]);
                         }
                     }
 
                     // (+X) z-shift right
                     let left_row = layer[(x+1).clamp(0, 15)];
                     let render_scheme = row & !left_row;
-                    for z in 1..CHUNK_SIZE {
+                    for z in 1..CHUNK_SIZE as usize {
                         if render_scheme >> z & 1 == 1 {
-                            let pos = self.mesh_coord(x, y, z as usize);
+                            let pos = self.mesh_coord(x, y, z);
                             mesh.extend_from_slice(&Vertex::relative(&pos, (1., 0., 0.), (0., 0.)).to_slice());
                             mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 0.), (0., 1.)).to_slice());
                             mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 1.), (1., 1.)).to_slice());
@@ -201,19 +189,15 @@ impl Chunk {
                             mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 1.), (1., 1.)).to_slice());
                             mesh.extend_from_slice(&Vertex::relative(&pos, (1., 0., 1.), (1., 0.)).to_slice());
                             mesh.extend_from_slice(&Vertex::relative(&pos, (1., 0., 0.), (0., 0.)).to_slice());
-                            // mesh.extend_from_slice(&[
-                            //     pos.x+1., pos.y+0., pos.z+0.,   pos.x+1., pos.y+1., pos.z+0.,   pos.x+1., pos.y+1., pos.z+1., 
-                            //     pos.x+1., pos.y+1., pos.z+1.,   pos.x+1., pos.y+0., pos.z+1.,   pos.x+1., pos.y+0., pos.z+0.,
-                            // ]);
                         }
                     }
 
                     // (-X) z-shift left
-                    let right_row = layer[x.checked_sub(1).unwrap_or(0)];
+                    let right_row = layer[x.saturating_sub(1)];
                     let render_scheme = row & !right_row;
-                    for z in 1..CHUNK_SIZE {
+                    for z in 1..CHUNK_SIZE as usize {
                         if render_scheme >> z & 1 == 1 {
-                            let pos = self.mesh_coord(x-1, y, z as usize);
+                            let pos = self.mesh_coord(x-1, y, z);
                             mesh.extend_from_slice(&Vertex::relative(&pos, (1., 0., 0.), (0., 0.)).to_slice());
                             mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 0.), (0., 1.)).to_slice());
                             mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 1.), (1., 1.)).to_slice());
@@ -221,10 +205,6 @@ impl Chunk {
                             mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 1.), (1., 1.)).to_slice());
                             mesh.extend_from_slice(&Vertex::relative(&pos, (1., 0., 1.), (1., 0.)).to_slice());
                             mesh.extend_from_slice(&Vertex::relative(&pos, (1., 0., 0.), (0., 0.)).to_slice());
-                            // mesh.extend_from_slice(&[
-                            //     pos.x+1., pos.y+0., pos.z+0.,   pos.x+1., pos.y+1., pos.z+0.,   pos.x+1., pos.y+1., pos.z+1., 
-                            //     pos.x+1., pos.y+1., pos.z+1.,   pos.x+1., pos.y+0., pos.z+1.,   pos.x+1., pos.y+0., pos.z+0.,
-                            // ]);
                         }
                     }
 
@@ -234,9 +214,9 @@ impl Chunk {
 
                     // (+Y)
                     let render_scheme = row & !next_layer_row;
-                    for z in 1..CHUNK_SIZE {
+                    for z in 1..CHUNK_SIZE as usize {
                         if render_scheme >> z & 1 == 1 {
-                            let pos = self.mesh_coord(x, y, z as usize);
+                            let pos = self.mesh_coord(x, y, z);
 
                             mesh.extend_from_slice(&Vertex::relative(&pos, (0., 1., 0.), (0., 0.)).to_slice());
                             mesh.extend_from_slice(&Vertex::relative(&pos, (0., 1., 1.), (0., 1.)).to_slice());
@@ -245,20 +225,15 @@ impl Chunk {
                             mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 1.), (1., 1.)).to_slice());
                             mesh.extend_from_slice(&Vertex::relative(&pos, (1., 1., 0.), (1., 0.)).to_slice());
                             mesh.extend_from_slice(&Vertex::relative(&pos, (0., 1., 0.), (0., 0.)).to_slice());
-
-                            // mesh.extend_from_slice(&[
-                            //     pos.x+0., pos.y+1., pos.z+0.,   pos.x+0., pos.y+1., pos.z+1.,   pos.x+1., pos.y+1., pos.z+1., 
-                            //     pos.x+1., pos.y+1., pos.z+1.,   pos.x+1., pos.y+1., pos.z+0.,   pos.x+0., pos.y+1., pos.z+0.,
-                            // ]);
                         }
                     }
 
-                    let past_layer = bytechunk.get(y.checked_sub(1).unwrap_or(0)).unwrap_or(&a);
+                    let past_layer = bytechunk.get(y.saturating_sub(1)).unwrap_or(&a);
                     let past_layer_row = past_layer[x];
                     let render_scheme = row & !past_layer_row;
-                    for z in 1..CHUNK_SIZE {
+                    for z in 1..CHUNK_SIZE as usize {
                         if render_scheme >> z & 1 == 1 {
-                            let pos = self.mesh_coord(x, y, z as usize);
+                            let pos = self.mesh_coord(x, y, z);
 
                             mesh.extend_from_slice(&Vertex::relative(&pos, (0., 0., 0.), (0., 0.)).to_slice());
                             mesh.extend_from_slice(&Vertex::relative(&pos, (0., 0., 1.), (0., 1.)).to_slice());
@@ -268,10 +243,6 @@ impl Chunk {
                             mesh.extend_from_slice(&Vertex::relative(&pos, (1., 0., 0.), (1., 0.)).to_slice());
                             mesh.extend_from_slice(&Vertex::relative(&pos, (0., 0., 0.), (0., 0.)).to_slice());
 
-                            // mesh.extend_from_slice(&[
-                            //     pos.x+0., pos.y+0., pos.z+0.,   pos.x+0., pos.y+0., pos.z+1.,   pos.x+1., pos.y+0., pos.z+1., 
-                            //     pos.x+1., pos.y+0., pos.z+1.,   pos.x+1., pos.y+0., pos.z+0.,   pos.x+0., pos.y+0., pos.z+0.,
-                            // ]);
                         }
                     }
                 }
@@ -326,7 +297,7 @@ impl Chunk {
             }
         }
 
-        return None;
+        None
     }
 
     pub fn set_block(&mut self, pos: ChunkRelativePosition, block_type: Option<BlockTypeId>) {

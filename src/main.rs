@@ -61,30 +61,99 @@ fn main() {
     let vertex_shader_source = r#"
         #version 330 core
         layout (location = 0) in vec3 aPos;
-        layout (location = 1) in vec2 aTexCoord; // 1. Accept UV coords from buffer
+        layout (location = 1) in vec2 aTexCoord;
 
-        uniform mat4 u_transform;
-        out vec2 vTexCoord; // 2. Pass UVs to the fragment shader
+        uniform mat4 u_transform; // MVP matrix
+        uniform mat4 u_model;     // Model matrix
+
+        out vec2 vTexCoord;
+        out vec3 vFragPos;        // Pass the world position instead of a normal
 
         void main() { 
             gl_Position = u_transform * vec4(aPos, 1.0); 
             vTexCoord = aTexCoord; 
+            
+            // Calculate the position of the vertex in the 3D world
+            vFragPos = vec3(u_model * vec4(aPos, 1.0)); 
         }
     "#;
 
     let fragment_shader_source = r#"
         #version 330 core
-        in vec2 vTexCoord; // 1. Receive UVs from vertex shader
+        in vec2 vTexCoord; 
+        in vec3 vFragPos; 
         out vec4 FragColor;
 
-        uniform sampler2D u_Texture; // 2. Accept the bound texture
+        uniform sampler2D u_Texture; 
+        uniform vec3 u_viewPos; 
+
+        // 1. Direction TOWARDS the sun. 
+        // If your voxels face +Y (up), a sun with Y=1.0 will hit the top.
+        const vec3 sunDir = normalize(vec3(0.4, 1.0, 0.2)); 
+        const vec3 sunColor = vec3(1.0, 0.95, 0.8); // Warm sunlight
+        const float ambientStrength = 0.4;          // Boosted for visibility
 
         void main() {
-            // 3. Sample the pixel color from the texture
-            FragColor = texture(u_Texture, vTexCoord); 
+            // 2. Generate Normals
+            vec3 fdx = dFdx(vFragPos);
+            vec3 fdy = dFdy(vFragPos);
+            vec3 norm = normalize(cross(fdx, fdy));
+
+            // 3. Lighting Calculation
+            // We use 'abs' here as a temporary test: if this makes it bright, 
+            // your normals were just pointing inside the cubes!
+            float diff = max(dot(norm, sunDir), 0.0);
+            
+            // 4. Sun Disk (Visual Sun in the sky)
+            vec3 viewDir = normalize(vFragPos - u_viewPos);
+            float sunAlignment = dot(viewDir, sunDir); 
+            float sunDisk = smoothstep(0.997, 0.999, sunAlignment);
+            vec3 sunElement = sunDisk * vec3(5.0, 5.0, 3.0); 
+
+            // 5. Final Color
+            vec4 texColor = texture(u_Texture, vTexCoord);
+            
+            // Apply a slight blue tint to shadows (ambient) for a better voxel look
+            vec3 ambient = ambientStrength * vec3(0.6, 0.7, 0.9);
+            vec3 diffuse = diff * sunColor;
+            
+            vec3 finalResult = (ambient + diffuse) * texColor.rgb + sunElement;
+            
+            FragColor = vec4(finalResult, texColor.a);
+
+            // --- DEBUG LINE ---
+            // Uncomment the line below to see your normals as colors. 
+            // Red/Green/Blue = facing X/Y/Z. If it's all black, vFragPos is broken.
+            // FragColor = vec4(norm * 0.5 + 0.5, 1.0); 
         }
     "#;
+    // let vertex_shader_source = r#"
+    //     #version 330 core
+    //     layout (location = 0) in vec3 aPos;
+    //     layout (location = 1) in vec2 aTexCoord; // 1. Accept UV coords from buffer
     //
+    //     uniform mat4 u_transform;
+    //     out vec2 vTexCoord; // 2. Pass UVs to the fragment shader
+    //
+    //     void main() { 
+    //         gl_Position = u_transform * vec4(aPos, 1.0); 
+    //         vTexCoord = aTexCoord; 
+    //     }
+    // "#;
+    //
+    // let fragment_shader_source = r#"
+    //     #version 330 core
+    //     in vec2 vTexCoord; // 1. Receive UVs from vertex shader
+    //     out vec4 FragColor;
+    //
+    //     uniform sampler2D u_Texture; // 2. Accept the bound texture
+    //
+    //     void main() {
+    //         // 3. Sample the pixel color from the texture
+    //         FragColor = texture(u_Texture, vTexCoord); 
+    //     }
+    // "#;
+
     // let vertex_shader_source = r#"
     //     #version 330 core
     //     layout (location = 0) in vec3 aPos;
@@ -123,7 +192,7 @@ fn main() {
 
     let mut cam = Camera {
         angle: vec3(0.0, 0.5 * PI, 0.0),
-        pos:   Vec3::Z * -3.0,
+        pos:   WorldPosition::new(0., 0., -3.),
     };
 
     let mut view = Mat4::ZERO;
@@ -142,20 +211,18 @@ fn main() {
 
         for event in event_pump.poll_iter() {
             let reach_dist = 2.;
-            let pos = cam.pos + (cam.front() * reach_dist);
+            let pos = WorldPosition::from_relative_pos(cam.pos.world_position + (cam.front() * reach_dist));
 
             match event {
                 Event::Quit { .. } | Event::KeyDown { scancode: Some(Scancode::Escape), .. } => { break 'running; }
-                Event::Window { win_event, .. } => {
-                    if let sdl2::event::WindowEvent::Resized(width, height) = win_event {
-                        unsafe { gl.viewport(0, 0, width, height) };
-                        projection = glam::Mat4::perspective_rh_gl(
-                            f32::to_radians(FOV), 
-                            width as f32 / height as f32, 
-                            0.1, 
-                            10000.0
-                        );
-                    }
+                Event::Window { win_event: sdl2::event::WindowEvent::Resized(width, height), .. } => {
+                    unsafe { gl.viewport(0, 0, width, height) };
+                    projection = glam::Mat4::perspective_rh_gl(
+                        f32::to_radians(FOV), 
+                        width as f32 / height as f32, 
+                        0.1, 
+                        10000.0
+                    );
                 }
 
                 Event::MouseMotion { xrel, yrel, .. } => {
@@ -164,24 +231,30 @@ fn main() {
                 }
 
                 Event::MouseButtonDown { mouse_btn, .. } => {
-                    // let bx = pos.x.floor() as i32;
-                    // let by = pos.y.floor() as i32;
-                    // let bz = pos.z.floor() as i32;
-
-                    let wpos = WorldPosition::from_world_pos(&pos);
+                    println!("click!");
                     match mouse_btn {
                         MouseButton::Right => {
-                            if world.set_block(&wpos, Some(selected_block)).is_err() {
-                                world.build_chunk(&gl, &wpos.chunk_position);
-                                world.set_block(&wpos, Some(selected_block)).unwrap();
+                            match world.set_block(&pos, Some(selected_block)) {
+                                Ok(()) => {}
+                                Err(_) => {
+                                    println!("fuck, this should not happen!");
+                                    world.build_chunk(&gl, &pos.chunk_pos());
+                                    world.set_block(&pos, Some(selected_block)).unwrap();
+                                }
                             }
                         }
+
                         MouseButton::Left => {
-                            if world.set_block(&wpos, None).is_err() {
-                                world.build_chunk(&gl, &wpos.chunk_position);
-                                world.set_block(&wpos, None).unwrap();
+                            match world.set_block(&pos, None) {
+                                Ok(()) => {}
+                                Err(_) => {
+                                    println!("fuck, this should not happen!");
+                                    world.build_chunk(&gl, &pos.chunk_pos());
+                                    world.set_block(&pos, None).unwrap();
+                                }
                             }
                         }
+
                         _ => {}
                     }
                 }
@@ -195,7 +268,7 @@ fn main() {
         let delta_time  = (now - last_frame_time) as f32 / 1000.0;
         last_frame_time = now;
 
-        print!("\rFPS: {:.2} pos: {}", 1. / fps_time, &cam.pos);
+        print!("\rFPS: {:.2} pos: {}", 1. / fps_time, &cam.pos.world_position);
 
         let ks = event_pump.keyboard_state();
         if event_pump.is_event_enabled(sdl2::event::EventType::KeyDown) {
@@ -225,18 +298,18 @@ fn main() {
         cam.angle.x = cam.angle.x.clamp(-max_pitch, max_pitch);
 
         if next_move != Vec3::ZERO {
-            cam.pos += next_move.normalize() * movement_speed * delta_time;
+            cam.pos.world_position += next_move.normalize() * movement_speed * delta_time;
         }
 
         cam.update_view(&mut view);
 
-        world.try_build_nearby_chunks(&gl, &WorldPosition::from_world_pos(&cam.pos));
+        world.try_build_nearby_chunks(&gl, &cam.pos);
          
-        // update_chunk(&gl, &mut vertex_count, &world.last_mesh);
-
         unsafe {
-            gl.clear_color(0.1, 0.15, 0.2, 1.0);
+            gl.clear_color(0.5, 0.7, 1.0, 1.0);
             gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
+            let view_pos_location = gl.get_uniform_location(program, "u_viewPos");
+            gl.uniform_3_f32(view_pos_location.as_ref(), cam.pos.world_position.x, cam.pos.world_position.y, cam.pos.world_position.z);
 
             gl.use_program(Some(program));
             gl.bind_texture(glow::TEXTURE_2D, Some(texture));

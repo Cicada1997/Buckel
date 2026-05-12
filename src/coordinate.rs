@@ -1,75 +1,42 @@
-use crate::{
-    chunk::{
-        CHUNK_SIZE,
-    },
-};
+use crate::chunk::CHUNK_SIZE;
 
 #[allow(unused_imports)]
 use {
+    glam::{Vec2, Vec3, vec3},
     std::ops,
-    glam::{
-        Vec2,
-        vec3,
-        Vec3,
-    },
 };
 pub type ChunkPosition = Vec2;
 pub type RelativePosition = Vec3;
 pub type ChunkRelativePosition = Vec3;
+#[derive(Debug)]
 pub struct WorldPosition {
-    pub chunk_position: ChunkPosition,
-    pub relative_position: ChunkRelativePosition,
+    pub world_position: RelativePosition,
 }
 
 impl WorldPosition {
-    pub fn from_world_xyz(world_pos: (f32, f32, f32)) -> Self {
-        Self { 
-            chunk_position: ChunkPosition {
-                x: world_pos.0.div_euclid(CHUNK_SIZE as f32),
-                y: world_pos.1.div_euclid(CHUNK_SIZE as f32),
-            }, 
-            relative_position: RelativePosition {
-                x: world_pos.0 % CHUNK_SIZE as f32,
-                y: world_pos.1 % CHUNK_SIZE as f32,
-                z: world_pos.2 % CHUNK_SIZE as f32,
-            }
-        }
-    }
-    pub fn from_world_pos(world_pos: &RelativePosition) -> Self {
-        Self::from_world_xyz((*world_pos).into())
+    pub fn from_relative_pos(world_position: RelativePosition) -> Self {
+        Self { world_position }
     }
 
-    pub fn world(&self) -> RelativePosition {
-        RelativePosition {
-            x: self.world_x(),
-            y: self.relative_position.y,
-            z: self.world_z(),
+    pub fn new(x: f32, y: f32, z: f32) -> Self {
+        Self { world_position: Vec3::new(x, y, z) }
+    }
+
+    pub fn chunk_pos(&self) -> ChunkPosition {
+        ChunkPosition {
+            x: (self.world_position.x / CHUNK_SIZE as f32).floor(),
+            y: (self.world_position.z / CHUNK_SIZE as f32).floor(),
         }
     }
 
-    pub fn world_x(&self) -> f32 {
-        self.relative_position.x + (self.chunk_position.x * CHUNK_SIZE as f32)
-    }
-
-    pub fn world_y(&self) -> f32 {
-        self.relative_position.y
-    }
-
-    pub fn world_z(&self) -> f32 {
-        self.relative_position.z + (self.chunk_position.y * CHUNK_SIZE as f32)
+    pub fn chunk_rel_pos(&self) -> ChunkRelativePosition {
+        ChunkRelativePosition {
+            x: self.world_position.x % CHUNK_SIZE as f32,
+            y: self.world_position.y,
+            z: self.world_position.z % CHUNK_SIZE as f32,
+        }
     }
 }
-
-// impl ops::Add<ChunkPosition> for RelativePosition {
-//     type Output = WorldPosition;
-//
-//     fn add(self, rhs: ChunkPosition) -> Self::Output {
-//         return WorldPosition {
-//             relative_position: self,
-//             chunk_position: rhs,
-//         }
-//     }
-// }
 
 pub trait Formable3D {
     fn iterform(&self) -> (usize, usize, usize);
@@ -77,7 +44,7 @@ pub trait Formable3D {
 
 impl Formable3D for RelativePosition {
     fn iterform(&self) -> (usize, usize, usize) {
-        ( self.x as usize, self.y as usize, self.z as usize )
+        (self.x as usize, self.y as usize, self.z as usize)
     }
 }
 
@@ -90,4 +57,3 @@ impl Hashable for ChunkPosition {
         (self.x as i32, self.y as i32)
     }
 }
-
