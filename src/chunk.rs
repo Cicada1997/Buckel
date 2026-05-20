@@ -41,7 +41,7 @@ impl Vertex {
     }
 
     pub fn to_slice(self) -> [f32; 5] {
-        return [self.pos[0], self.pos[1], self.pos[2], self.uv[0], self.uv[1]];
+        [self.pos[0], self.pos[1], self.pos[2], self.uv[0], self.uv[1]]
     }
 }
 
@@ -50,7 +50,7 @@ pub static CHUNK_SIZE:   u16 = 14;
 pub static CHUNK_PADDING: u16 = 2;
 pub static CHUNK_HEIGHT: u16 = 256;
 pub static RENDER_DISTANCE: i32 = 16;
-pub type ByteChunkLayer      = [u16;            (CHUNK_SIZE + CHUNK_PADDING) as usize];
+pub type ByteChunkLayer      = [u16; (CHUNK_SIZE + CHUNK_PADDING) as usize];
 pub type ByteChunk           = [ByteChunkLayer; CHUNK_HEIGHT as usize];
 
 pub struct Chunk {
@@ -122,15 +122,11 @@ impl Chunk {
     }
 
     fn mesh_coord(&self, x: usize, y: usize, z: usize) -> WorldPosition {
-        // TODO:
-        // the offset below makes the world makes the chunks align,
-        // allthough it unaligns the world position applied to chunks
-        // from the world position applied to enitites (positional
-        // things outside the voxelworld).
+        let pad = (CHUNK_PADDING / 2) as f32;
         WorldPosition::new(
-            x as f32 + CHUNK_SIZE as f32 * self.pos.x - self.pos.x,
-            y as f32, 
-            z as f32 + CHUNK_SIZE as f32 * self.pos.y - self.pos.y
+            (x as f32 - pad) + CHUNK_SIZE as f32 * self.pos.x,
+            y as f32,
+            (z as f32 - pad) + CHUNK_SIZE as f32 * self.pos.y,
         )
     }
 
@@ -142,12 +138,12 @@ impl Chunk {
             for y in 0..CHUNK_HEIGHT as usize {
                 let layer = bytechunk[y];
 
-                for x in 1..CHUNK_SIZE as usize {
+                for x in 1..=CHUNK_SIZE as usize {
                     let row = layer[x];
 
                     // (-Z) x-shift right 
                     let render_scheme = (!row & (row >> 1)) << 1;
-                    for z in 1..CHUNK_SIZE as usize {
+                    for z in 1..=CHUNK_SIZE as usize {
                         let pos = self.mesh_coord(x, y, z);
                         if render_scheme >> z & 1 == 1 {
                             mesh.extend_from_slice(&Vertex::relative(&pos, (0., 0., 0.), (0., 0.)).to_slice());
@@ -162,7 +158,7 @@ impl Chunk {
 
                     // (+Z) x-shift left
                     let render_scheme = (!row & (row << 1)) >> 1;
-                    for z in 1..CHUNK_SIZE as usize {
+                    for z in 1..=CHUNK_SIZE as usize {
                         if render_scheme >> z & 1 == 1 {
                             let pos = self.mesh_coord(x, y, z);
 
@@ -179,7 +175,7 @@ impl Chunk {
                     // (+X) z-shift right
                     let left_row = layer[(x+1).clamp(0, 15)];
                     let render_scheme = row & !left_row;
-                    for z in 1..CHUNK_SIZE as usize {
+                    for z in 1..=CHUNK_SIZE as usize {
                         if render_scheme >> z & 1 == 1 {
                             let pos = self.mesh_coord(x, y, z);
                             mesh.extend_from_slice(&Vertex::relative(&pos, (1., 0., 0.), (0., 0.)).to_slice());
@@ -195,7 +191,7 @@ impl Chunk {
                     // (-X) z-shift left
                     let right_row = layer[x.saturating_sub(1)];
                     let render_scheme = row & !right_row;
-                    for z in 1..CHUNK_SIZE as usize {
+                    for z in 1..=CHUNK_SIZE as usize {
                         if render_scheme >> z & 1 == 1 {
                             let pos = self.mesh_coord(x-1, y, z);
                             mesh.extend_from_slice(&Vertex::relative(&pos, (1., 0., 0.), (0., 0.)).to_slice());
@@ -214,7 +210,7 @@ impl Chunk {
 
                     // (+Y)
                     let render_scheme = row & !next_layer_row;
-                    for z in 1..CHUNK_SIZE as usize {
+                    for z in 1..=CHUNK_SIZE as usize {
                         if render_scheme >> z & 1 == 1 {
                             let pos = self.mesh_coord(x, y, z);
 
@@ -231,7 +227,7 @@ impl Chunk {
                     let past_layer = bytechunk.get(y.saturating_sub(1)).unwrap_or(&a);
                     let past_layer_row = past_layer[x];
                     let render_scheme = row & !past_layer_row;
-                    for z in 1..CHUNK_SIZE as usize {
+                    for z in 1..=CHUNK_SIZE as usize {
                         if render_scheme >> z & 1 == 1 {
                             let pos = self.mesh_coord(x, y, z);
 
@@ -266,11 +262,11 @@ impl Chunk {
         let terrain_height_multiplier = 20.0;
         let sea_level = 10.0;
 
-        for x in 0..CHUNK_SIZE as i32 {
-            for z in 0..CHUNK_SIZE as i32 {
+        for x in 0..(CHUNK_SIZE + CHUNK_PADDING) as i32 {
+            for z in 0..(CHUNK_SIZE + CHUNK_PADDING) as i32 {
 
-                let world_x = (x as f32 + self.pos.x * CHUNK_SIZE as f32 - self.pos.x) as f64;
-                let world_z = (z as f32 + self.pos.y * CHUNK_SIZE as f32 - self.pos.y) as f64;
+                let world_x = (x as f32 + self.pos.x * CHUNK_SIZE as f32) as f64;
+                let world_z = (z as f32 + self.pos.y * CHUNK_SIZE as f32) as f64;
 
                 let noise_val = perlin.get([world_x * frequency, world_z * frequency]) + perlin2.get([world_x * frequency, world_z * frequency]);
                 let height = ((noise_val + 1.0) * 0.5 * terrain_height_multiplier + sea_level) as i32;
@@ -287,9 +283,9 @@ impl Chunk {
     pub fn get_block(&self, pos: &ChunkRelativePosition) -> Option<BlockTypeId> {
         let (x, y, z) = pos.iterform();
 
-        limit!(x, CHUNK_SIZE as usize,   "chunk relative position outside chunk");
+        limit!(x, (CHUNK_SIZE + CHUNK_PADDING) as usize,   "chunk relative position outside chunk");
         limit!(y, CHUNK_HEIGHT as usize, "chunk relative position outside chunk");
-        limit!(z, CHUNK_SIZE as usize,   "chunk relative position outside chunk");
+        limit!(z, (CHUNK_SIZE + CHUNK_PADDING) as usize,   "chunk relative position outside chunk");
 
         for (block_type_id, bytechunk) in self.blocks.iter().enumerate() {
             if (bytechunk[y][x] >> z) & 1 == 1 {
@@ -302,9 +298,9 @@ impl Chunk {
 
     pub fn set_block(&mut self, pos: ChunkRelativePosition, block_type: Option<BlockTypeId>) {
         let (x, y, z) = pos.iterform();
-        limit!(x, CHUNK_SIZE as usize,   "chunk relative position outside chunk");
+        limit!(x, (CHUNK_SIZE + CHUNK_PADDING) as usize,   "chunk relative position outside chunk");
         limit!(y, CHUNK_HEIGHT as usize, "chunk relative position outside chunk");
-        limit!(z, CHUNK_SIZE as usize,   "chunk relative position outside chunk");
+        limit!(z, (CHUNK_SIZE + CHUNK_PADDING) as usize,   "chunk relative position outside chunk");
 
         if let Some(block_type) = block_type {
             self.blocks[block_type][y][x] = self.blocks[block_type][y][x] | (1 << z);

@@ -210,8 +210,6 @@ fn main() {
         let mut movement_speed = 14.;
 
         for event in event_pump.poll_iter() {
-            let reach_dist = 2.;
-            let pos = WorldPosition::from_relative_pos(cam.pos.world_position + (cam.front() * reach_dist));
 
             match event {
                 Event::Quit { .. } | Event::KeyDown { scancode: Some(Scancode::Escape), .. } => { break 'running; }
@@ -231,6 +229,9 @@ fn main() {
                 }
 
                 Event::MouseButtonDown { mouse_btn, .. } => {
+                    let reach_dist = 2.;
+                    let pos = WorldPosition::from_relative_pos(cam.pos.world_position + (cam.front() * reach_dist));
+
                     println!("click!");
                     match mouse_btn {
                         MouseButton::Right => {
@@ -263,9 +264,9 @@ fn main() {
             }
         }
 
-        let now         = timer.ticks();
-        let fps_time  = (now - last_frame_time) as f64 / 1000.0;
-        let delta_time  = (now - last_frame_time) as f32 / 1000.0;
+        let now = timer.ticks();
+        let fps_time = (now - last_frame_time) as f64 / 1000.0;
+        let delta_time = (now - last_frame_time) as f32 / 1000.0;
         last_frame_time = now;
 
         print!("\rFPS: {:.2} pos: {}", 1. / fps_time, &cam.pos.world_position);

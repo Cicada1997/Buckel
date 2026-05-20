@@ -1,10 +1,14 @@
-use crate::chunk::CHUNK_SIZE;
+use crate::chunk::{
+    CHUNK_SIZE,
+    CHUNK_PADDING,
+};
 
 #[allow(unused_imports)]
 use {
     glam::{Vec2, Vec3, vec3},
     std::ops,
 };
+
 pub type ChunkPosition = Vec2;
 pub type RelativePosition = Vec3;
 pub type ChunkRelativePosition = Vec3;
@@ -30,10 +34,11 @@ impl WorldPosition {
     }
 
     pub fn chunk_rel_pos(&self) -> ChunkRelativePosition {
+        let pad = (CHUNK_PADDING / 2) as f32;
         ChunkRelativePosition {
-            x: self.world_position.x % CHUNK_SIZE as f32,
+            x: self.world_position.x.rem_euclid(CHUNK_SIZE as f32) + pad,
             y: self.world_position.y,
-            z: self.world_position.z % CHUNK_SIZE as f32,
+            z: self.world_position.z.rem_euclid(CHUNK_SIZE as f32) + pad,
         }
     }
 }
