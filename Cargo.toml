@@ -4,15 +4,17 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-sdl2 = { version = "0.38.0", features = ["image"] }
+# sdl2 = { version = "0.38.0", features = ["image"] }
+sdl2 = { version = "0.38.0" }
+image = "0.25.10"
 
 glow = "0.13.1"
 bytemuck = { version = "1.14", features = ["derive"] }
 hecs = "0.11.0"
 glam = "0.32.1"
 noise = "0.9.0"
-image = "0.25.10"
 
 [features]
-bundled-sdl2 = ["sdl2/bundled", "sdl2/static-link", "sdl2/image"]
+bundled-sdl2 = ["sdl2/bundled", "sdl2/static-link"]
+# bundled-sdl2 = ["sdl2/bundled", "sdl2/static-link", "sdl2/image"]
 # bundled-sdl2 = { version = "0.38.0", features = ["bundled", "static-link"] }

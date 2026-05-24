@@ -1,4 +1,4 @@
-# 3D voxel engine
+# 3D voxel game/engine
 
 ## TODO:
-- [ ] fix bugg that adds 108 (3 * 36) verticies for every block
+- [x] fix bugg that adds 108 (3 * 36) verticies for every block
